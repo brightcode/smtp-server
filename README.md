@@ -1,6 +1,6 @@
-# Smtp::Server
+# SMTP::Server
 
-TODO: Write a gem description
+Simple SMTP server for receiving mails from trusted sources. For example in a Postfix content filter.
 
 ## Installation
 

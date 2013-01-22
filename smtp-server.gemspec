@@ -5,11 +5,11 @@ require 'smtp-server/version'
 
 Gem::Specification.new do |gem|
   gem.name          = "smtp-server"
-  gem.version       = Smtp::Server::VERSION
+  gem.version       = SMTP::Server::VERSION
   gem.authors       = ["Maarten Oelering"]
   gem.email         = ["maarten@brightcode.nl"]
-  gem.description   = %q{TODO: Write a gem description}
-  gem.summary       = %q{TODO: Write a gem summary}
+  gem.description   = %q{Simple SMTP server for receiving mails from trusted sources}
+  gem.summary       = %q{Simple SMTP server for receiving mails from trusted sources}
   gem.homepage      = ""
 
   gem.files         = `git ls-files`.split($/)
