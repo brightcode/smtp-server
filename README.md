@@ -18,8 +18,50 @@ Or install it yourself as:
 
 ## Usage
 
-TODO: Write usage instructions here
+Single threaded
 
+    server = SMTP::Server.new(host, port)
+    server.run do |socket|
+      connection = SMTP::Server::Connection.new(socket)
+      connection.handle do |sender, recipients, message|
+        puts "message from: #{sender} to #{recipients.join(',')}"
+      end
+    end
+
+Concurrent connections
+
+    server = SMTP::Server.new(host, port)
+    server.run do |socket|
+      Thread.new(socket) do |socket|
+        connection = SMTP::Server::Connection.new(socket)
+        connection.handle do |sender, recipients, message|
+          puts "message from: #{sender} to #{recipients.join(',')}"
+        end
+      end
+    end
+
+Acceptor thread and connection threads
+    
+    Thread.new do
+      begin
+        @server = SMTP::Server.new(@host, @port)
+        @server.run do |socket|
+          Thread.new do
+            begin
+              connection = SMTP::Server::Connection.new(socket)
+              connection.handle do |sender, recipients, message|
+                puts "message from: #{sender} to #{recipients.join(',')}"
+              end
+            rescue
+              STDERR.puts $!.to_s
+            end
+          end
+        end
+      rescue
+        STDERR.puts $!.to_s
+      end
+    end
+    
 ## Contributing
 
 1. Fork it

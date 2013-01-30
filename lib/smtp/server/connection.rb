@@ -14,8 +14,10 @@ module SMTP
         @socket.close
       end
 
-      def handle
+      def handle(&block)
+        @block = block if block_given?
         begin
+          STDERR.puts "banner"
           # send banner greeting
           reply 220, "#{hostname} ESMTP"
           while line = getline  # nil when peer disconnected
@@ -75,7 +77,7 @@ module SMTP
         #  return
         #end
         
-        @state = :helo
+        @heloname = domain
         reply 250, hostname
       end
 
@@ -85,7 +87,7 @@ module SMTP
           return
         end
         
-        @state = :helo
+        @heloname = domain
         reply 250, hostname, 'PIPELINING', '8BITMIME'
       end
 
@@ -103,13 +105,13 @@ module SMTP
         end
 
         # start new transaction
-        @state = :mail
-        @data = []
+        @sender = address
+        @recipients = []
         reply 250, "2.1.0 Ok"
       end
 
       def on_rcpt(params)
-        if @state == :helo
+        if @sender.nil?
           reply 503, "5.5.1 Error: need MAIL command"
           return
         end
@@ -120,17 +122,17 @@ module SMTP
           return
         end
 
-        @state = :rcpt
+        @recipients << address
         reply 250, "2.1.5 Ok"
       end
 
       def on_data
-        if @state != :rcpt
+        if @recipients.nil? || @recipients.empty?
           reply 503, "5.5.1 Error: no valid recipients"
           return
         end
 
-        @state = :data
+        @data = []
         reply 354, "End data with <CR><LF>.<CR><LF>"
 
         # optimization since we are in a dedicated thread
@@ -146,17 +148,21 @@ module SMTP
           #end
           @data << line
         end
-
+        
+        @block.call(@sender, @recipients, @data.join("\n")) if @block
+        
         # transaction finished
-        @state = :helo
+        @sender = nil
+        @recipients = nil
+        @data = nil
         reply 250, "2.0.0 Ok"  # queued as %s
       end
 
       def on_rset
         # abort transaction and restore state to right after HELO/EHLO
-        if (@state == :mail || @state == :rcpt || @state == :data)
-          @state = :helo
-        end
+        @sender = nil
+        @recipients = nil
+        @data = nil
         reply 250, "2.0.0 Ok"
       end
 

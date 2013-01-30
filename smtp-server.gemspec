@@ -1,7 +1,7 @@
 # -*- encoding: utf-8 -*-
 lib = File.expand_path('../lib', __FILE__)
 $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
-require 'smtp-server/version'
+require 'smtp/server/version'
 
 Gem::Specification.new do |gem|
   gem.name          = "smtp-server"

@@ -2,6 +2,7 @@ require 'smtp/server/connection'
 
 module SMTP
   class Server
+    
     def initialize(host, port)
       @server = TCPServer.new(host, port)
     end
@@ -12,9 +13,14 @@ module SMTP
       @server.close  
     end
     
+    # pass optional block to handle connection
     def run
       while socket = accept
-        on_connection(socket)
+        if block_given?
+          yield socket
+        else
+          handle_connection(socket)
+        end
       end
     end
     
@@ -27,7 +33,7 @@ module SMTP
       end
     end
     
-    def on_connection(socket)
+    def handle_connection(socket)
       Connection.new(socket).handle
     end
   end
