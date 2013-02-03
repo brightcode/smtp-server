@@ -1,14 +1,14 @@
 # SMTP::Server
 
-Framework independent SMTP server protocol handler. It can be used in threaded solutions such as GServer or Celluliod. But it works just as well in evented solutions, such as EventMachine, Netty or VertX.
+Framework independent SMTP server protocol implemenation. It can be used in threaded solutions such as GServer or Celluliod. But it works just as well in evented solutions, such as EventMachine, Netty or VertX.
 
-The user of the protocol handler (parent/including class) should frame incoming data into lines and pass them to the handler. The parent should also provide a write method that is used by the handler to return responses.
+The user of the protocol handler module (parent or including class) should frame incoming data into lines and pass them to the handler. The user should also provide a write method that is used by the handler to return responses.
 
-The protocol handler has methods which can be overridden by the parent to save or reject the following items: connection ip, authentication credentials, envelope sender, envelope recipient and message.
+The protocol handler includes stub methods which can be overridden by the parent to save or reject the following items: connection ip, authentication credentials, envelope sender, envelope recipient and message.
 
-The protocol handler supports the following SMTP extensions: STARTTLS, AUTH PLAIN, AUTH LOGIN, and PIPELINING. STARTTLS is advertised if a start_tls method is present. AUTH is advertised if an authenticate method is present.
+The protocol handler supports the following SMTP extensions: STARTTLS, AUTH PLAIN, AUTH LOGIN, and PIPELINING. STARTTLS is advertised if a start_tls method is provided by the user. AUTH is advertised if an authenticate method is provided by the user.
 
-A socket handler class is provided which further simplifies the implementation on top of a client connection socket. It handles passes IO to and from the protocol handler.
+A socket handler class is provided which further simplifies the implementation on top of a client connection socket. It  passes IO to and from the protocol handler.
 
 ## Installation
 
