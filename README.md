@@ -4,11 +4,11 @@ Framework independent SMTP server protocol implemenation. It can be used in thre
 
 The user of the protocol handler module (parent or including class) should frame incoming data into lines and pass them to the handler. The user should also provide a write method that is used by the handler to return responses.
 
-The protocol handler includes stub methods which can be overridden by the parent to save or reject the following items: connection ip, authentication credentials, envelope sender, envelope recipient and message.
+The protocol handler includes callback stub methods which can be overridden by the parent to save or reject the following items: connection ip, authentication credentials, envelope sender, envelope recipient and message.
 
 The protocol handler supports the following SMTP extensions: STARTTLS, AUTH PLAIN, AUTH LOGIN, and PIPELINING. STARTTLS is advertised if a start_tls method is provided by the user. AUTH is advertised if an authenticate method is provided by the user.
 
-A socket handler class is provided which further simplifies the implementation on top of a client connection socket. It  passes IO to and from the protocol handler.
+A connection handler class is provided which further simplifies the implementation on top of a client connection socket. It includes the protocol handler passes IO to and from the handler, so only the necessary callbacks need to be implemented.
 
 ## Installation
 
@@ -30,12 +30,12 @@ A threaded SMTP server based on GServer; it can't get any easier:
 
     class SmtpServer < GServer
     
-      class SmtpHandler < SMTP::Server::SocketHandler
-        # implement event callbacks as needed
+      class SmtpServerConnection < SMTP::Server::Connection
+        # implement callbacks as needed
       end
 
       def serve(socket)
-        SmtpHandler.handle_connection(socket)
+        SmtpServerConnection.handler(socket)
       end
     end
 
@@ -62,7 +62,7 @@ SMTP server in EventMachine with several improvements over EventMachine::Protoco
         send_data(data)
       end
       
-      # implement event callbacks as needed
+      # implement callbacks as needed
     end
     
 ## Contributing

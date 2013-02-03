@@ -10,7 +10,7 @@ module SMTP
     #
     module Protocol
       
-      include SMTP::Server::CallbackStubs
+      include SMTP::Server::Callbacks
       
       # to be called after client connected
       # client_connection may be overriden to accept/reject based on client ip

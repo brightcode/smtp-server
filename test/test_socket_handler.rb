@@ -7,7 +7,7 @@ class TestSocketHandler < Test::Unit::TestCase
   HOST = '127.0.0.1'
   PORT = 10025
   
-  class Handler < SMTP::Server::SocketHandler
+  class SmtpServerConnection < SMTP::Server::Connection
     
     def receive_data_command
       @data = []
@@ -27,7 +27,7 @@ class TestSocketHandler < Test::Unit::TestCase
     @thread = Thread.new do
       Thread.current.abort_on_exception = true
       server = TCPServer.new(HOST, PORT)
-      Handler.handle_connection(server.accept)
+      SmtpServerConnection.handler(server.accept)
     end
     sleep 1  # wait for server to startup
   end
