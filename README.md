@@ -1,6 +1,14 @@
 # SMTP::Server
 
-Simple SMTP server for receiving mails from trusted sources. For example in a Postfix content filter.
+Framework independent SMTP server protocol handler. It can be used in threaded solutions such as GServer or Celluliod. But it works just as well in evented solutions, such as EventMachine, Netty or VertX.
+
+The user of the protocol handler (parent/including class) should frame incoming data into lines and pass them to the handler. The parent should also provide a write method that is used by the handler to return responses.
+
+The protocol handler has methods which can be overridden by the parent to save or reject the following items: connection ip, authentication credentials, envelope sender, envelope recipient and message.
+
+The protocol handler supports the following SMTP extensions: STARTTLS, AUTH PLAIN, AUTH LOGIN, and PIPELINING. STARTTLS is advertised if a start_tls method is present. AUTH is advertised if an authenticate method is present.
+
+A socket handler class is provided which further simplifies the implementation on top of a client connection socket. It handles passes IO to and from the protocol handler.
 
 ## Installation
 
@@ -18,48 +26,43 @@ Or install it yourself as:
 
 ## Usage
 
-Single threaded
+A threaded SMTP server based on GServer; it can't get any easier:
 
-    server = SMTP::Server.new(host, port)
-    server.run do |socket|
-      connection = SMTP::Server::Connection.new(socket)
-      connection.handle do |sender, recipients, message|
-        puts "message from: #{sender} to #{recipients.join(',')}"
-      end
-    end
-
-Concurrent connections
-
-    server = SMTP::Server.new(host, port)
-    server.run do |socket|
-      Thread.new(socket) do |socket|
-        connection = SMTP::Server::Connection.new(socket)
-        connection.handle do |sender, recipients, message|
-          puts "message from: #{sender} to #{recipients.join(',')}"
-        end
-      end
-    end
-
-Acceptor thread and connection threads
+    class SmtpServer < GServer
     
-    Thread.new do
-      begin
-        @server = SMTP::Server.new(@host, @port)
-        @server.run do |socket|
-          Thread.new do
-            begin
-              connection = SMTP::Server::Connection.new(socket)
-              connection.handle do |sender, recipients, message|
-                puts "message from: #{sender} to #{recipients.join(',')}"
-              end
-            rescue
-              STDERR.puts $!.to_s
-            end
-          end
-        end
-      rescue
-        STDERR.puts $!.to_s
+      class SmtpHandler < SMTP::Server::SocketHandler
+        # implement event callbacks as needed
       end
+
+      def serve(socket)
+        SmtpHandler.handle_connection(socket)
+      end
+    end
+
+SMTP server in EventMachine with several improvements over EventMachine::Protocols::SmtpServer:
+
+    class SmtpServerConnection < EM::Protocols::LineAndTextProtocol
+    
+      include SMTP::Server::Protocol
+      
+      def post_init
+        port, ip = Socket.unpack_sockaddr_in(get_peername)
+        if !start_session(ip)
+          close_connection_after_writing
+        end
+      end
+
+      def receive_line(line)
+        if !process_line(line)
+          close_connection_after_writing
+        end
+      end
+      
+      def write(data)
+        send_data(data)
+      end
+      
+      # implement event callbacks as needed
     end
     
 ## Contributing
