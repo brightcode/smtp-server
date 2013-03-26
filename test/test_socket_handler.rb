@@ -8,6 +8,17 @@ class TestSocketHandler < Test::Unit::TestCase
   PORT = 10025
   
   class SmtpServerConnection < SMTP::Server::Connection
+
+    def receive_sender(orig)
+      puts orig
+      @data = []
+      true
+    end
+
+    def receive_recipient(rcpt)
+      puts rcpt
+      true
+    end
     
     def receive_data_command
       @data = []

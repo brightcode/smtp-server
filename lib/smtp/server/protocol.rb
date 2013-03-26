@@ -2,11 +2,11 @@ module SMTP
   module Server
     #
     # SMTP server protocol implementation
-    # provided as a module so it can be included in classes that need to inherit from a server framework class
-    # the protocol contains state, and one instance must be used per connection
-    # advertises STARTTLS if start_tls method is provided by user object
-    # advertises AUTH PLAIN LOGIN if authenticate method is provided by user object
-    # advertises SIZE if max_size method is provided by user object
+    # Provided as a module so it can be included in classes that need to inherit from a server framework class
+    # The protocol contains state, and one instance must be used per connection
+    # Advertises STARTTLS if start_tls method is provided by user object
+    # Advertises AUTH PLAIN LOGIN if authenticate method is provided by user object
+    # Advertises SIZE if max_size method is provided by user object
     #
     module Protocol
       
@@ -41,6 +41,12 @@ module SMTP
         !@state.include?(:quit) # return true unless QUIT is given
       end
       
+      #
+      # protocol subroutines
+      # 
+      
+      protected
+      
       def process_command_line(line)
         # split command at first space, if present
         command, rest = line.split(' ', 2)
@@ -53,11 +59,13 @@ module SMTP
           process_starttls
         when 'AUTH'
           process_auth rest
+        when 'XFORWARD'
+          process_xforward rest
         when 'MAIL'
-          rest.slice!(/^FROM: ?/i) if rest
+          rest.slice!(/^FROM:\s*/i) if rest
           process_mail_from rest
         when 'RCPT'
-          rest.slice!(/^TO: ?/i) if rest
+          rest.slice!(/^TO:\s*/i) if rest
           process_rcpt_to rest
         when 'DATA'
           process_data
@@ -78,7 +86,6 @@ module SMTP
         end
       end
       
-      #--
       # EHLO/HELO is always legal, per the standard. On success
       # it always clears buffers and initiates a mail "transaction."
       # Which means that a MAIL FROM must follow.
@@ -110,6 +117,7 @@ module SMTP
           params << "SIZE #{max_size}" if respond_to?(:max_size)
           params << "PIPELINING"
           params << "8BITMIME"
+          params << "XFORWARD NAME ADDR HELO"
           #params << "ENHANCEDSTATUSCODES"
           reply 250, params
           reset_protocol_state
@@ -131,13 +139,10 @@ module SMTP
         end
       end
 
-      #--
-      # STARTTLS may not be issued before EHLO, or unless the user has chosen
-      # to support it.
-      # TODO, must support user-supplied certificates.
+      # handle STARTTLS
       #
       def process_starttls
-        if options[:starttls]
+        if respond_to?(:start_tls)
           if @state.include?(:starttls)
             reply 503, "TLS Already negotiated"
           elsif !@state.include?(:ehlo)
@@ -156,8 +161,7 @@ module SMTP
         end
       end
 
-      #--
-      # Process AUTH command. So far, AUTH PLAIN and AUTH LOGIN are supported.
+      # handle AUTH
       #
       # PLAIN authentication is efficient in that it requires only a single command and response. 
       # Unless an encrypted SMTP connection is used, the data travels over the network unencryopted, 
@@ -171,28 +175,32 @@ module SMTP
       # disadvantage is that the password must be held unencrypted on the server as well as on the client.
       #
       def process_auth str
-        if @state.include?(:auth)
-          reply 503, "auth already issued"
-        elsif str =~ /\APLAIN\s?/i
-          if $'.length == 0
-            # we got a partial response, so let the client know to send the rest
-            # There is a common misconception that the data has to be sent with the AUTH command
-            @state << :auth_plain_incomplete
-            reply 334, ""
+        if respond_to?(:authenticate)
+          if @state.include?(:auth)
+            reply 503, "auth already issued"
+          elsif str =~ /\APLAIN\s?/i
+            if $'.length == 0
+              # we got a partial response, so let the client know to send the rest
+              # There is a common misconception that the data has to be sent with the AUTH command
+              @state << :auth_plain_incomplete
+              reply 334, ""
+            else
+              # we got the initial response, so go ahead & process it
+              process_auth_plain_line($')
+            end
+          elsif str =~ /\ALOGIN\s?/i
+            if $'.length == 0
+               @state << :auth_login_incomplete
+               reply 334, "VXNlcm5hbWU6"  # 'Username:' in Base64
+             else
+               process_auth_login_line($')
+             end
+          #elsif str =~ /\ACRAM-MD5/i
           else
-            # we got the initial response, so go ahead & process it
-            process_auth_plain_line($')
+            reply 504, "auth mechanism not available"
           end
-        elsif str =~ /\ALOGIN\s?/i
-          if $'.length == 0
-             @state << :auth_login_incomplete
-             reply 334, "VXNlcm5hbWU6"  # 'Username:' in Base64
-           else
-             process_auth_login_line($')
-           end
-        #elsif str =~ /\ACRAM-MD5/i
         else
-          reply 504, "auth mechanism not available"
+          process_unknown
         end
       end
 
@@ -231,9 +239,19 @@ module SMTP
         end
       end
 
+      # handle XFORWARD
+      def process_xforward(params)
+        # XFORWARD NAME=spike.porcupine.org ADDR=168.100.189.2 PROTO=ESMTP
+        # XFORWARD HELO=spike.porcupine.org
+        xforward ||= {}
+        params.scan(/(\w+)=(\w+)/) { |name, value| xforward[name] = value }
+        # TODO: save xforward data
+        reply 250, "Ok"
+      end
+      
       # handle MAIL FROM:
       # calls receive_sender with provided address and optional parameters
-      def process_mail_from sender
+      def process_mail_from params
         # Requiring TLS is touchy, cf RFC2784.
         # Requiring AUTH seems to be much more reasonable.
         #if (options[:starttls] == :required and !@state.include?(:starttls))
@@ -242,9 +260,19 @@ module SMTP
         #  reply 550, "This server requires authentication before MAIL FROM"
         if @state.include?(:mail_from)
           reply 503, "Sender already given"
-        elsif sender !~ /@|<>/  # valid email or empty sender (<>)
+          return
+        end
+        
+        if params.nil?
           reply 501, "Syntax: MAIL FROM:<address>"
-        elsif !receive_sender(sender)
+          return
+        end
+        
+        reverse_path, mail_parameters = params.split(' ', 2)
+        if reverse_path !~ /@|<>/  # valid email or empty sender (<>)
+          reply 501, "Syntax: MAIL FROM:<address>"
+        # RET=[FULL|HDRS], ENVID=, BODY=[8BITMIME|7BIT]
+        elsif !receive_sender(unbracket(reverse_path))
           reply 550, "sender is unacceptable"
         else
           reply 250, "Ok"
@@ -254,14 +282,20 @@ module SMTP
 
       # handle RCPT TO:
       # calls receive_recipient with provided address and optional parameters
-      def process_rcpt_to recipient
+      def process_rcpt_to params
         # Since we require :mail_from to have been seen before we process RCPT TO,
         # we don't need to repeat the tests for TLS and AUTH.
         if !@state.include?(:mail_from)
           reply 503, "No sender given"
-        elsif recipient !~ /^<?[^>]+>?/
+          return
+        end
+        
+        forward_path, rcpt_parameters = params.split(' ', 2)
+        if forward_path !~ /@/
           reply 501, "Syntax: RCPT TO:<address>"
-        elsif !receive_recipient(recipient)
+        # NOTIFY=[SUCCESS],[FAILURE],[DELAY],[NEVER], ORCPT=
+        # "555 5.5.4 Unsupported option: %s"
+        elsif !receive_recipient(unbracket(forward_path))
           reply 550, "recipient is unacceptable"  # or too many recipients
         else
           reply 250, "Ok"
@@ -274,7 +308,6 @@ module SMTP
         if !@state.include?(:rcpt)
           reply 503, "No valid recipients"
         else
-          receive_data_command
           reply 354, "End data with <CR><LF>.<CR><LF>"
           @state << :data
         end
@@ -285,10 +318,14 @@ module SMTP
       # calls receive_message if message is complete
       def process_data_line line
         if line == "."
-          if receive_message
-            reply 250, "Message accepted"
-          else
-            reply 550, "Message rejected"
+          begin
+            if receive_message
+              reply 250, "Message accepted"
+            else
+              reply 550, "Message rejected"
+            end
+          rescue => exception
+            reply 550, exception.to_s
           end
           # do not allow another DATA with same sender and recipients
           # allow another transaction without requiring RSET
@@ -300,71 +337,61 @@ module SMTP
         end
       end
 
+      # handle RSET
       def process_rset
         reset_protocol_state
         reply 250, "OK"
       end
 
+      # handle QUIT
       def process_quit
         @state << :quit
         reply 221, "#{get_server_domain} closing connection"
       end
 
-      # TODO - implement this properly, the implementation is a stub!
+      # handle VRFY
       def process_vrfy
         # A server MUST NOT return a 250 code in response to a VRFY or EXPN
         # command unless it has actually verified the address.
-        reply 502, "Command not implemented"
+        reply 252, "Administrative prohibition"
       end
 
-      # TODO - implement this properly, the implementation is a stub!
+      # handle HELP
       def process_help
-        reply 502, "Command not implemented"
+        commands = %w{HELO EHLO}
+        commands << 'STARTTLS' if respond_to?(:start_tls)
+        commands << 'AUTH' if respond_to?(:authenticate)
+        commands += %w{MAIL RCPT DATA NOOP QUIT RSET HELP}
+        reply 214, ["Commands supported:", commands.join(' ')]
       end
 
-      # TODO - implement this properly, the implementation is a stub!
+      # handle EXPN
       def process_expn
-        reply 502, "Command not implemented"
+        reply 550, "Administrative prohibition"
       end
 
+      # handle NOOP
       def process_noop
-        reply 250, "OK"
+        reply 250, "Ok"
       end
 
+      # handle unknown commands
       def process_unknown
-        reply 500, "unrecognized command"
+        reply 500, "Unrecognized command"
       end
 
       #
       # helper functions
       #
 
-      #--
-      # This is called at several points to restore the protocol state
-      # to a pre-transaction state. In essence, we "forget" having seen
-      # any valid command except EHLO and STARTTLS.
-      # We also have to callback user code, in case they're keeping track
-      # of senders, recipients, and whatnot.
-      #
-      # We try to follow the convention of avoiding the verb "receive" for
-      # internal method names except receive_line (which we inherit), and
-      # using only receive_xxx for user-overridable stubs.
-      #
-      # init_protocol_state is called when we initialize the connection as
-      # well as during reset_protocol_state. It does NOT call the user
-      # override method. This enables us to promise the users that they
-      # won't see the overridable fire except after EHLO and RSET, and
-      # after a message has been received. Although the latter may be wrong.
-      # The standard may allow multiple DATA segments with the same set of
-      # senders and recipients.
-      #
+      # clear protocol state except helo/ehlo and starttls
       def reset_protocol_state
-        # clear state except ehlo and starttls
         s,@state = @state,[]
         @state << :starttls if s.include?(:starttls)
         @state << :ehlo if s.include?(:ehlo)
       end
 
+      # send a multi-line reply if +message+ is a Array, otherwise send a single line reply
       def reply(code, message)
         if message.is_a?(Array)
           last = message.pop # remove last element
@@ -374,6 +401,17 @@ module SMTP
           write "#{code} #{message}\r\n"
         end
       end
+      
+      # remove leading '<' and trailing '>' from email address
+      def unbracket(str)
+        # ? str[/[^ <]+@[^> ]+/]
+        if str[0] == ?< and str[-1] == ?>
+          return str[1...-1]
+        else
+          return str
+        end
+      end
+      
     end
   end
 end

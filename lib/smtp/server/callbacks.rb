@@ -42,10 +42,6 @@ module SMTP
         true
       end
 
-      # Called to indicate that data phase is started. May be used to initialize data storage.
-      def receive_data_command
-      end
-      
       # Called on each line of data. Line delimiters have been removed and lines
       # with a leading dot have been unescaped.
       def receive_data_line line
